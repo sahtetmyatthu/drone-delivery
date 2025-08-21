@@ -1,0 +1,7 @@
+drone-delivery:
+  max-ports: 100
+  port-range:
+    min: 1
+    max: 65535
+  thread-pool-size: 100
+  listener-timeout-ms: 30000
