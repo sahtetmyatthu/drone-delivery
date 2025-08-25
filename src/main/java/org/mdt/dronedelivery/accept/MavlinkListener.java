@@ -53,34 +53,37 @@ public class MavlinkListener {
                         if (message != null) {
                             lastPacketTime = System.currentTimeMillis();
                             InetAddress sender = udpInputStream.getSenderAddress();
-                            mavlinkMessageHandler.handleMessage(message,port, udpSocket, sender);
-
-                            logger.info("MAVLink message {} from {}",
-                                    message.getPayload().getClass().getSimpleName(), sender);
+                            mavlinkMessageHandler.handleMessage(message, port, sender);
                         }
+
                         if (System.currentTimeMillis() - lastPacketTime > listenerTimeoutMs) {
                             logger.info("No packets on port {} for {}ms, stopping listener.", port, listenerTimeoutMs);
-                            return;
+                            break;
                         }
                     } catch (SocketTimeoutException e) {
                         if (System.currentTimeMillis() - lastPacketTime > listenerTimeoutMs) {
                             logger.info("No packets on port {} for {}ms, stopping listener.", port, listenerTimeoutMs);
-                            return;
+                            break;
                         }
                     } catch (IOException e) {
                         if (Thread.currentThread().isInterrupted()) {
                             logger.info("Listener thread interrupted for UDP port: {}", port);
-                            return;
+                            break;
                         }
                         logger.error("Error on UDP port {}: {}", port, e.getMessage());
-                        return;
+                        break;
                     }
                 }
             } catch (IOException e) {
                 if (!Thread.currentThread().isInterrupted()) {
                     logger.error("Error initializing UDP socket for port {}: {}", port, e.getMessage());
                 }
+            } finally {
+                // IMPORTANT: remove from activeListeners so it can restart
+                logger.info("Listener exiting for port {}", port);
+
             }
         });
     }
+
 }

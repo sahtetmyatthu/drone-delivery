@@ -5,3 +5,7 @@ drone-delivery:
     max: 65535
   thread-pool-size: 100
   listener-timeout-ms: 30000
+
+server:
+  port: 8080
+

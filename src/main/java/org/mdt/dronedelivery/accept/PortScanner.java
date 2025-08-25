@@ -38,6 +38,8 @@ public class PortScanner {
         this.bufferSize = bufferSize;
     }
 
+
+
     public void scanPorts() {
         Map<Integer, DatagramChannel> channels = new ConcurrentHashMap<>();
         try (Selector selector = Selector.open()) {
