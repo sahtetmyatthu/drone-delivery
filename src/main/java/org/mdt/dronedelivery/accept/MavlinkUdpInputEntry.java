@@ -1,11 +1,10 @@
-package org.mdt.dronedelivery.entry;
+package org.mdt.dronedelivery.accept;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.Arrays;
@@ -23,22 +22,17 @@ public class MavlinkUdpInputEntry {
     private volatile boolean running = true;
 
     @Autowired
-    public MavlinkUdpInputEntry(PortManager portManager, PortScanner portScanner,
-                                @Value("${drone-delivery.max-ports}") int maxPorts) {
+    public MavlinkUdpInputEntry(PortManager portManager, PortScanner portScanner) {
         this.portManager = portManager;
         this.portScanner = portScanner;
-        this.executorService = Executors.newFixedThreadPool(maxPorts);
+        this.executorService = Executors.newSingleThreadExecutor();
     }
 
     @PostConstruct
     public void init() {
         portManager.addPortsToScan(Arrays.asList(1500, 1501, 1502));
-        if (!portManager.getPortsToScan().isEmpty()) {
-            executorService.submit(portScanner::scanPorts);
-            logger.info("Started port scanner for initial ports: {}", portManager.getPortsToScan());
-        } else {
-            logger.error("No valid initial ports provided. Port scanner not started.");
-        }
+        executorService.submit(portScanner::scanPorts);
+
     }
 
     @PreDestroy

@@ -1,4 +1,4 @@
-package org.mdt.dronedelivery.utils;
+package org.mdt.dronedelivery.accept;
 
 import lombok.Getter;
 

@@ -1,4 +1,4 @@
-package org.mdt.dronedelivery.entry;
+package org.mdt.dronedelivery.accept;
 
 import lombok.Getter;
 import org.slf4j.Logger;

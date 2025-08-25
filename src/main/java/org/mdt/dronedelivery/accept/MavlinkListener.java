@@ -1,8 +1,8 @@
-package org.mdt.dronedelivery.entry;
+package org.mdt.dronedelivery.accept;
 
 import io.dronefleet.mavlink.MavlinkConnection;
 import io.dronefleet.mavlink.MavlinkMessage;
-import org.mdt.dronedelivery.utils.UdpInputStream;
+import org.mdt.dronedelivery.process.MavlinkMessageHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,12 +24,14 @@ public class MavlinkListener {
     private final ExecutorService executorService;
     private final int listenerTimeoutMs;
 
+    private final MavlinkMessageHandler mavlinkMessageHandler;
     public MavlinkListener(
             @Value("${drone-delivery.thread-pool-size:100}") int threadPoolSize,
-            @Value("${drone-delivery.listener-timeout-ms:30000}") int listenerTimeoutMs
+            @Value("${drone-delivery.listener-timeout-ms:30000}") int listenerTimeoutMs, MavlinkMessageHandler mavlinkMessageHandler
     ) {
         this.executorService = Executors.newFixedThreadPool(threadPoolSize);
         this.listenerTimeoutMs = listenerTimeoutMs;
+        this.mavlinkMessageHandler = mavlinkMessageHandler;
     }
 
     public Future<?> listenOnPort(int port) {
@@ -51,9 +53,10 @@ public class MavlinkListener {
                         if (message != null) {
                             lastPacketTime = System.currentTimeMillis();
                             InetAddress sender = udpInputStream.getSenderAddress();
-                            int senderPort = udpInputStream.getSenderPort();
-                            logger.info("MAVLink message {} from {}:{}",
-                                    message.getPayload().getClass().getSimpleName(), sender, senderPort);
+                            mavlinkMessageHandler.handleMessage(message,port, udpSocket, sender);
+
+                            logger.info("MAVLink message {} from {}",
+                                    message.getPayload().getClass().getSimpleName(), sender);
                         }
                         if (System.currentTimeMillis() - lastPacketTime > listenerTimeoutMs) {
                             logger.info("No packets on port {} for {}ms, stopping listener.", port, listenerTimeoutMs);
