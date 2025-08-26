@@ -14,8 +14,10 @@ import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
+import java.util.stream.Collectors;
 
 @Component
 public class PortScanner {
@@ -26,19 +28,18 @@ public class PortScanner {
     private final Map<Integer, Future<?>> activeListeners = new ConcurrentHashMap<>();
     private final int scannerTimeoutMs;
     private final int bufferSize;
+    private final Set<Integer> lastScannedPorts = ConcurrentHashMap.newKeySet();
 
     public PortScanner(
             PortManager portManager,
             MavlinkListener mavlinkListener,
-            @Value("${drone-delivery.scanner-timeout-ms:3000}") int scannerTimeoutMs,
+            @Value("${drone-delivery.scanner-timeout-ms:5000}") int scannerTimeoutMs,
             @Value("${drone-delivery.buffer-size:1024}") int bufferSize) {
         this.portManager = portManager;
         this.mavlinkListener = mavlinkListener;
         this.scannerTimeoutMs = scannerTimeoutMs;
         this.bufferSize = bufferSize;
     }
-
-
 
     public void scanPorts() {
         Map<Integer, DatagramChannel> channels = new ConcurrentHashMap<>();
@@ -61,13 +62,16 @@ public class PortScanner {
                 }
             });
             channels.clear();
+            activeListeners.clear();
+            lastScannedPorts.clear();
             logger.info("Port scanner stopped, all channels closed.");
         }
     }
 
     private void processIncomingPackets(Selector selector, Map<Integer, DatagramChannel> channels) {
         try {
-            selector.select(scannerTimeoutMs);
+            int selected = selector.select(scannerTimeoutMs);
+            logger.debug("Selected {} channels for reading", selected);
             for (SelectionKey key : selector.selectedKeys()) {
                 if (key.isReadable()) {
                     DatagramChannel channel = (DatagramChannel) key.channel();
@@ -81,18 +85,21 @@ public class PortScanner {
                                 try {
                                     channel.close();
                                     channels.remove(port);
-                                    Future<?> future = mavlinkListener.listenOnPort(port);
+                                    Future<?> future = mavlinkListener.listenOnPort(port, this::stopListeningOnPort);
                                     Future<?> existing = activeListeners.putIfAbsent(port, future);
                                     if (existing == null) {
                                         logger.info("Started MAVLink UDP listener on port {}", port);
                                     } else {
                                         future.cancel(true);
+                                        logger.debug("Listener already active on port {}, cancelling new attempt", port);
                                     }
                                 } catch (IOException e) {
                                     logger.error("Error closing channel for port {}: {}", port, e.getMessage());
                                 }
                             }
                         }
+                    } else {
+                        logger.debug("No data received on port {}", port);
                     }
                 }
             }
@@ -122,25 +129,42 @@ public class PortScanner {
     }
 
     private void updateChannels(Map<Integer, DatagramChannel> channels, Selector selector) {
-        for (Integer port : portManager.getPortsToScan()) {
+        Set<Integer> portsToScan = portManager.getPortsToScan().stream().collect(Collectors.toSet());
+        logger.debug("Scanning ports: {}", portsToScan);
+        for (Integer port : portsToScan) {
             if (!channels.containsKey(port) && !activeListeners.containsKey(port)) {
                 try {
-                    DatagramChannel channel = DatagramChannel.open();
-                    channel.configureBlocking(false);
-                    channel.setOption(StandardSocketOptions.SO_REUSEADDR, true);
-                    channel.bind(new InetSocketAddress("0.0.0.0", port));
-                    channel.register(selector, SelectionKey.OP_READ);
-                    channels.put(port, channel);
-                    logger.info("Monitoring new port {}", port);
+                    openAndRegisterChannel(port, channels, selector);
                 } catch (IOException e) {
                     logger.error("Failed to open channel for port {}: {}", port, e.getMessage());
                 }
+            } else {
+                logger.debug("Skipping port {}: already monitored={} or active={}",
+                        port, channels.containsKey(port), activeListeners.containsKey(port));
             }
+        }
+    }
+
+    private void openAndRegisterChannel(int port, Map<Integer, DatagramChannel> channels, Selector selector) throws IOException {
+        DatagramChannel channel = DatagramChannel.open();
+        try {
+            channel.configureBlocking(false);
+            channel.setOption(StandardSocketOptions.SO_REUSEADDR, true);
+            channel.bind(new InetSocketAddress("0.0.0.0", port));
+            channel.register(selector, SelectionKey.OP_READ);
+            channels.put(port, channel);
+            logger.info("Monitoring port {}", port);
+        } catch (IOException e) {
+            if (channel.isOpen()) {
+                channel.close();
+            }
+            throw e;
         }
     }
 
     public synchronized void stopAllListeners() {
         activeListeners.keySet().forEach(this::stopListeningOnPort);
+        activeListeners.clear();
     }
 
     public synchronized void stopListeningOnPort(int port) {
@@ -149,7 +173,7 @@ public class PortScanner {
             future.cancel(true);
             logger.info("Stopped MAVLink UDP listener on port {}", port);
         } else {
-            logger.info("No active listener found on port {}", port);
+            logger.debug("No active listener found on port {}", port);
         }
     }
 }
